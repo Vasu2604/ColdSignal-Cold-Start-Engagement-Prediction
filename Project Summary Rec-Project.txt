@@ -1,0 +1,78 @@
+
+PROJECT: Cold-Start Engagement Prediction for Short-Form Video
+Dataset: SnapUGC (Snapchat Spotlight, proxy for YouTube Shorts)
+
+=== DATA ===
+Full dataset: 106,192 videos (train split)
+Sampled + downloaded: 6,500 -> 4,137 working (63.6% success, 36.4% dead links)
+CLIP subset: ~2,000 videos (compute-limited)
+
+=== FEATURE CORRELATIONS WITH ECR (4,137 videos) ===
+text_pca_0 (Sentence-BERT meaning):  -0.226   <- before CLIP, top signal
+audio_energy_std:                    0.193
+title_has_text:                      0.190
+audio_energy_max:                    0.189
+audio_max_jump:                      0.180
+title_word_count:                    0.176
+title_text_length:                   0.164
+audio_energy_mean:                   0.124
+desc_has_text:                       0.102
+motion_mean:                        -0.098   <- weak, raw pixels lack meaning
+onscreen_text_amount (pixel proxy):  0.069   <- weak, presence != meaning
+hook_strength_motion/audio:         <0.06    <- hypothesis refuted
+title_is_all_caps, exclamation etc: ~0.00-0.07  <- hype formatting irrelevant
+
+CLIP visual semantics (2,000 video subset, top 5 PCA dims):
+clip_pca_3: +0.243   <- STRONGEST single signal in the whole project
+clip_pca_4: -0.230
+clip_pca_2: -0.207
+clip_pca_1: -0.120
+
+=== MODEL RESULTS (regression metrics) ===
+Random Forest (17 features, 4137 videos):
+  MAE 0.2364 | R2 0.1137 | Spearman 0.3315
+
+First PyTorch NN (401 features, 4137 videos) -- LOST to RF, diagnosed overfitting:
+  MAE 0.2448 | R2 0.0395 | Spearman 0.3233
+
+Improved PyTorch NN (51 features: PCA-reduced text + numeric, mini-batch, early stop):
+  MAE 0.2311 | R2 0.1648 | Spearman 0.4389   <- BEAT RF, matches ICCV 2025 benchmark (~0.44)
+
+Capstone model (71 features: numeric + text + CLIP, ~2000 videos, smaller test set n=198):
+  Random Forest: MAE 0.2135 | R2 0.2272 | Spearman 0.4657
+  Neural Net:    MAE 0.2125 | R2 0.1489 | Spearman 0.4594
+  NOTE: smaller test set (198) = higher noise threshold (~0.14) for trusting
+  exact values -- treat as directionally supportive, not precisely higher.
+
+=== PRODUCTION RANKING METRICS ===
+See full_ranking_metrics_all_models.csv for the complete table
+(NDCG@10, Precision@10, Recall@10, MAP@10, MRR, RMSE, MAE per model).
+These are the metric families used in real recommendation/search
+systems, evaluated on top of the regression metrics above.
+
+=== KEY FINDINGS / NARRATIVE ===
+1. Semantic understanding (CLIP visual meaning, Sentence-BERT text meaning)
+   consistently beat low-level features (raw motion, text shape/length).
+2. Audio dynamics (variation, sudden "drops") outpredicted raw loudness.
+3. Hook-timing hypothesis (front-loaded intensity) was REFUTED by testing --
+   but led to discovering audio_max_jump, which worked.
+4. On-screen text PRESENCE (via OCR) was too noisy to be useful --
+   motivates semantic captioning models (mPLUG-2/LMMs) as future work.
+5. First NN lost to Random Forest due to feature/data ratio (401 features,
+   4137 rows) -- diagnosed and fixed via PCA reduction + mini-batching +
+   early stopping, which then beat RF (0.33 -> 0.44).
+6. Result (0.44 Spearman) matches the SROCC 0.441 reported by the ICCV
+   2025 VQualA challenge's strong text-embedding approach.
+
+=== HONEST LIMITATIONS ===
+- Dataset is Snapchat Spotlight, used as a proxy for YouTube Shorts
+  (no public YouTube Shorts engagement dataset exists).
+- ~36% of source video links were dead (404) -- known link-rot limitation.
+- CLIP results based on 2,000-video subset due to compute/time constraints.
+- On-screen caption READING (vs detection) would need OCR + LLM semantic
+  understanding -- scoped as future work, not attempted at production quality.
+- No user/watch-history data exists in this dataset -- this is a content-
+  only cold-start signal, ONE component of a full recommendation system,
+  not a complete recommender.
+- Online metrics (CTR, conversion rate, session duration) require a live
+  system with real users -- out of scope for this offline prototype.
